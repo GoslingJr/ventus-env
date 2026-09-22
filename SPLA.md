@@ -2,7 +2,7 @@
 
 This branch collects the fixes needed to run the SPLA test suite
 (https://github.com/SparseLinearAlgebra/spla) on Ventus with the spike backend.
-Result: 13/13 test programs, 58/58 tests pass.
+Result on a clean clone and build: Ventus regression tests 11/11, SPLA 13/13 test programs, 58/58 tests.
 
 ## What is changed
 
@@ -23,10 +23,24 @@ sizes they need more memory than a 32-bit device has and take hours on spike.
 ```
 git clone --recursive -b spla-fixes https://github.com/GoslingJr/ventus-env.git
 cd ventus-env
+make rodinia_data      # dataset for the rodinia tests run at the end of build-ventus.sh
 bash build-ventus.sh
 ```
 
+With less than about 32 GB of RAM, lower `LLVM_PARALLEL_LINK_JOBS` in
+`build-ventus.sh` (for example to 2) before building, otherwise linking LLVM
+may run out of memory.
+
+Check the build with the Ventus regression tests (11/11 pass):
+
+```
+source env.sh
+python3 regression-test.py
+```
+
 ## Run SPLA
+
+In every new shell, set up the environment first (from the `ventus-env` directory):
 
 ```
 source env.sh
