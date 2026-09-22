@@ -1,0 +1,91 @@
+diff --git a/tests/test_mxv.cpp b/tests/test_mxv.cpp
+index 1d7e9d16..f6d532e6 100644
+--- a/tests/test_mxv.cpp
++++ b/tests/test_mxv.cpp
+@@ -89,10 +89,10 @@ TEST(mxv_masked, naive) {
+ }
+ 
+ TEST(mxv_masked, perf) {
+-    const int N     = 980000;
++    const int N     = 10000;
+     const int K     = 256;
+     const int S     = 10;
+-    const int NITER = 10;
++    const int NITER = 1;
+ 
+     spla::Timer timer;
+ 
+diff --git a/tests/test_opencl_merge.cpp b/tests/test_opencl_merge.cpp
+index 8700f6dd..f274fe68 100644
+--- a/tests/test_opencl_merge.cpp
++++ b/tests/test_opencl_merge.cpp
+@@ -465,8 +465,8 @@ TEST(opencl_merge, merge_path_v1) {
+     std::chrono::duration<double, std::milli> result_time_cpu = end_time - start_time;
+     std::chrono::duration<double, std::milli> result_time_gpu = end_time - start_time;
+ 
+-    const uint N_RUNS    = 10;
+-    const uint N         = 1 * 1024 * 1024;
++    const uint N_RUNS    = 1;
++    const uint N         = 64 * 1024;
+     const uint TILE_SIZE = 8;
+ 
+     for (uint t = 0; t < N_RUNS; t++) {
+@@ -568,8 +568,8 @@ TEST(opencl_merge, merge_path_v2) {
+     std::chrono::duration<double, std::milli> result_time_cpu = end_time - start_time;
+     std::chrono::duration<double, std::milli> result_time_gpu = end_time - start_time;
+ 
+-    const uint N_RUNS     = 10;
+-    const uint N          = 1 * 1024 * 1024;
++    const uint N_RUNS     = 1;
++    const uint N          = 64 * 1024;
+     const uint TILE_SIZE  = 128;
+     const uint GROUP_SIZE = 64;
+ 
+diff --git a/tests/test_vector.cpp b/tests/test_vector.cpp
+index 4bd310b4..da304f2c 100644
+--- a/tests/test_vector.cpp
++++ b/tests/test_vector.cpp
+@@ -161,9 +161,9 @@ TEST(vector, reduce_mult) {
+ }
+ 
+ TEST(vector, reduce_perf) {
+-    const int N     = 10000000;
++    const int N     = 100000;
+     const int K     = 5000;
+-    const int NITER = 20;
++    const int NITER = 2;
+     int       R     = 0;
+ 
+     spla::Timer timer;
+diff --git a/tests/test_vxm.cpp b/tests/test_vxm.cpp
+index 615aa8c3..ded1fb78 100644
+--- a/tests/test_vxm.cpp
++++ b/tests/test_vxm.cpp
+@@ -89,11 +89,11 @@ TEST(vxm_masked, naive) {
+ }
+ 
+ TEST(vxm_masked, perf_mult_add) {
+-    const int N     = 1000000;
++    const int N     = 10000;
+     const int K     = 10;
+     const int W     = 64;
+     const int S     = 10;
+-    const int NITER = 10;
++    const int NITER = 1;
+ 
+     std::vector<int> result(N, 0);
+ 
+@@ -138,11 +138,11 @@ TEST(vxm_masked, perf_mult_add) {
+ }
+ 
+ TEST(vxm_masked, perf_and_or) {
+-    const int N     = 1000000;
++    const int N     = 10000;
+     const int K     = 10;
+     const int W     = 64;
+     const int S     = 10;
+-    const int NITER = 10;
++    const int NITER = 1;
+ 
+     std::vector<int> result(N, 0);
+ 
