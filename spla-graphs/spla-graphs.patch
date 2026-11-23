@@ -1,0 +1,276 @@
+diff --git a/examples/bfs.cpp b/examples/bfs.cpp
+index e51dad87..259884f6 100644
+--- a/examples/bfs.cpp
++++ b/examples/bfs.cpp
+@@ -33,6 +33,7 @@
+ 
+ int main(int argc, const char* const* argv) {
+     std::shared_ptr<cxxopts::Options> options = make_options("bfs", "bfs (breadth first search) algorithm with spla library");
++    options->add_options()("directed", "Use the arcs as stored and run push-only BFS", cxxopts::value<bool>()->default_value("false"));
+     cxxopts::ParseResult              args;
+     int                               ret;
+ 
+@@ -49,7 +50,8 @@ int main(int argc, const char* const* argv) {
+ 
+     timer.start();
+ 
+-    if (!loader.load(args[OPT_MTXPATH].as<std::string>())) {
++    const bool directed = args["directed"].as<bool>();
++    if (!loader.load(args[OPT_MTXPATH].as<std::string>(), true, !directed, true)) {
+         std::cerr << "failed to load graph";
+         return 1;
+     }
+@@ -70,7 +72,7 @@ int main(int argc, const char* const* argv) {
+     spla::ref_ptr<spla::Matrix>     A     = spla::Matrix::make(N, N, spla::INT);
+     spla::ref_ptr<spla::Descriptor> desc  = spla::Descriptor::make();
+ 
+-    desc->set_traversal_mode(static_cast<spla::Descriptor::TraversalMode>(args[OPT_PUSH_PULL].as<int>() - 1));
++    desc->set_traversal_mode(static_cast<spla::Descriptor::TraversalMode>((directed ? 1 : args[OPT_PUSH_PULL].as<int>()) - 1));
+     desc->set_front_factor(args[OPT_FRONT_FACTOR].as<float>());
+ 
+     const auto& Ai = loader.get_Ai();
+diff --git a/examples/common.hpp b/examples/common.hpp
+index 5b1f96e0..319aaf98 100644
+--- a/examples/common.hpp
++++ b/examples/common.hpp
+@@ -32,6 +32,9 @@
+ 
+ #include <cmath>
+ #include <iostream>
++#include <fstream>
++#include <limits>
++#include <stdexcept>
+ #include <vector>
+ 
+ void verify_exact(const char* where, int a, int b) {
+@@ -80,4 +83,17 @@ void verify_exact(const char* where, const spla::ref_ptr<spla::Vector>& a, const
+     }
+ }
+ 
++inline void write_float_vector(const std::string& path, const spla::ref_ptr<spla::Vector>& values) {
++    std::ofstream out;
++    out.exceptions(std::ios::failbit | std::ios::badbit);
++    out.open(path);
++    out.precision(std::numeric_limits<float>::max_digits10);
++    for (spla::uint i = 0; i < values->get_n_rows(); ++i) {
++        float value;
++        values->get_float(i, value);
++        out << i << '\t' << value << '\n';
++    }
++    out.close();
++}
++
+ #endif//SPLA_COMMON_HPP
+diff --git a/examples/pr.cpp b/examples/pr.cpp
+index e12b8b3d..1a275440 100644
+--- a/examples/pr.cpp
++++ b/examples/pr.cpp
+@@ -25,6 +25,8 @@
+ /* SOFTWARE.                                                                      */
+ /**********************************************************************************/
+ 
++#include <algorithm>
++
+ #include "common.hpp"
+ #include "options.hpp"
+ 
+@@ -33,6 +35,9 @@
+ 
+ int main(int argc, const char* const* argv) {
+     std::shared_ptr<cxxopts::Options> options = make_options("pr", "pr (page-rank) algorithm with spla library");
++    options->add_options()
++        ("incoming", "Accumulate incoming contributions on undirected graphs without isolated vertices", cxxopts::value<bool>()->default_value("false"))
++        ("gpu-output", "Write the accelerator vector as vertex/value pairs", cxxopts::value<std::string>());
+     cxxopts::ParseResult              args;
+     int                               ret;
+ 
+@@ -78,13 +83,20 @@ int main(int argc, const char* const* argv) {
+     const auto& Ai = loader.get_Ai();
+     const auto& Aj = loader.get_Aj();
+ 
++    const bool incoming = args["incoming"].as<bool>();
++    const auto& rows = incoming ? Aj : Ai;
++    const auto& cols = incoming ? Ai : Aj;
+     std::vector<float> A_degrees(N, 0.0f);
+ 
+     for (std::size_t k = 0; k < loader.get_n_values(); ++k) {
+         A_degrees[Ai[k]] += 1.0f;
+     }
++    if (incoming && std::find(A_degrees.begin(), A_degrees.end(), 0.0f) != A_degrees.end()) {
++        std::cerr << "--incoming requires a graph without isolated vertices\n";
++        return 1;
++    }
+     for (std::size_t k = 0; k < loader.get_n_values(); ++k) {
+-        A->set_float(Ai[k], Aj[k], alpha / A_degrees[Ai[k]]);
++        A->set_float(rows[k], cols[k], alpha / A_degrees[Ai[k]]);
+     }
+ 
+     const int n_iters = args[OPT_NITERS].as<int>();
+@@ -119,8 +131,8 @@ int main(int argc, const char* const* argv) {
+         std::vector<std::vector<float>>      ref_Ax(N, std::vector<float>());
+ 
+         for (std::size_t k = 0; k < loader.get_n_values(); ++k) {
+-            ref_Ai[Ai[k]].push_back(Aj[k]);
+-            ref_Ax[Ai[k]].push_back(alpha / A_degrees[Ai[k]]);
++            ref_Ai[rows[k]].push_back(cols[k]);
++            ref_Ax[rows[k]].push_back(alpha / A_degrees[Ai[k]]);
+         }
+ 
+         timer_ref.lap_begin();
+@@ -131,6 +143,10 @@ int main(int argc, const char* const* argv) {
+         if (args[OPT_RUN_GPU].as<bool>()) verify_exact("acc", v_acc, ref_v);
+     }
+ 
++    if (args.count("gpu-output") && args[OPT_RUN_GPU].as<bool>()) {
++        write_float_vector(args["gpu-output"].as<std::string>(), v_acc);
++    }
++
+     spla::Library::get()->finalize();
+ 
+     timer.stop();
+diff --git a/examples/sssp.cpp b/examples/sssp.cpp
+index d5ddf04f..17b9804d 100644
+--- a/examples/sssp.cpp
++++ b/examples/sssp.cpp
+@@ -30,9 +30,60 @@
+ 
+ #include <spla.hpp>
+ 
++#include <sstream>
++
++
++namespace {
++    struct WeightedGraph {
++        unsigned n = 0;
++        std::vector<unsigned> row, col;
++        std::vector<float> weights;
++
++        void add(unsigned i, unsigned j, float w) {
++            row.push_back(i);
++            col.push_back(j);
++            weights.push_back(w);
++        }
++    };
++
++    WeightedGraph read_weighted_graph(const std::string& path) {
++        std::ifstream input(path);
++        std::string line;
++        std::getline(input, line);
++        std::istringstream header(line);
++        std::string banner, object, format, field, symmetry;
++        header >> banner >> object >> format >> field >> symmetry;
++        if (banner != "%%MatrixMarket" || object != "matrix" || format != "coordinate" ||
++            field != "real" || symmetry != "symmetric") {
++            throw std::runtime_error("--matrix-weights requires a real symmetric Matrix Market file");
++        }
++        while (std::getline(input, line) && (line.empty() || line.front() == '%')) {}
++        std::istringstream shape(line);
++        WeightedGraph graph;
++        unsigned cols;
++        std::size_t count;
++        if (!(shape >> graph.n >> cols >> count) || graph.n != cols || graph.n == 0) {
++            throw std::runtime_error("Invalid graph dimensions");
++        }
++        for (std::size_t k = 0; k < count; ++k) {
++            unsigned i, j;
++            float w;
++            if (!(input >> i >> j >> w) || !i || !j || i > graph.n || j > graph.n ||
++                !std::isfinite(w) || w < 0) {
++                throw std::runtime_error("Invalid weighted edge");
++            }
++            graph.add(i - 1, j - 1, w);
++            if (i != j) graph.add(j - 1, i - 1, w);
++        }
++        return graph;
++    }
++}
+ 
+ int main(int argc, const char* const* argv) {
+     std::shared_ptr<cxxopts::Options> options = make_options("sssp", "sssp (single-source shortest path) algorithm with spla library");
++    options->add_options()
++        ("matrix-weights", "Use nonnegative edge weights from a real symmetric Matrix Market file", cxxopts::value<bool>()->default_value("false"))
++        ("gpu-output", "Write the accelerator vector as vertex/value pairs", cxxopts::value<std::string>());
+     cxxopts::ParseResult              args;
+     int                               ret;
+ 
+@@ -49,7 +100,12 @@ int main(int argc, const char* const* argv) {
+ 
+     timer.start();
+ 
+-    if (!loader.load(args[OPT_MTXPATH].as<std::string>())) {
++    const bool weighted = args["matrix-weights"].as<bool>();
++    const auto path = args[OPT_MTXPATH].as<std::string>();
++    WeightedGraph graph;
++    if (weighted) {
++        graph = read_weighted_graph(path);
++    } else if (!loader.load(path)) {
+         std::cerr << "failed to load graph";
+         return 1;
+     }
+@@ -63,7 +119,7 @@ int main(int argc, const char* const* argv) {
+     library->get_accelerator_info(acc_info);
+     std::cout << "env: " << acc_info << std::endl;
+ 
+-    const spla::uint                N     = loader.get_n_rows();
++    const spla::uint                N     = weighted ? graph.n : loader.get_n_rows();
+     const spla::uint                s     = args[OPT_SOURCE].as<int>();
+     spla::ref_ptr<spla::Vector>     v_cpu = spla::Vector::make(N, spla::FLOAT);
+     spla::ref_ptr<spla::Vector>     v_acc = spla::Vector::make(N, spla::FLOAT);
+@@ -73,12 +129,12 @@ int main(int argc, const char* const* argv) {
+     desc->set_traversal_mode(static_cast<spla::Descriptor::TraversalMode>(args[OPT_PUSH_PULL].as<int>() - 1));
+     desc->set_front_factor(args[OPT_FRONT_FACTOR].as<float>());
+ 
+-    const spla::uint w  = 1.0f;
+-    const auto&      Ai = loader.get_Ai();
+-    const auto&      Aj = loader.get_Aj();
++    const auto& Ai = weighted ? graph.row : loader.get_Ai();
++    const auto& Aj = weighted ? graph.col : loader.get_Aj();
++    const auto weight = [&](std::size_t k) { return weighted ? graph.weights[k] : 1.0f; };
+ 
+-    for (std::size_t k = 0; k < loader.get_n_values(); ++k) {
+-        A->set_float(Ai[k], Aj[k], w);
++    for (std::size_t k = 0; k < Ai.size(); ++k) {
++        A->set_float(Ai[k], Aj[k], weight(k));
+     }
+ 
+     const int n_iters = args[OPT_NITERS].as<int>();
+@@ -112,9 +168,9 @@ int main(int argc, const char* const* argv) {
+         std::vector<std::vector<spla::uint>> ref_Ai(N, std::vector<spla::uint>());
+         std::vector<std::vector<float>>      ref_Ax(N, std::vector<float>());
+ 
+-        for (std::size_t k = 0; k < loader.get_n_values(); ++k) {
++        for (std::size_t k = 0; k < Ai.size(); ++k) {
+             ref_Ai[Ai[k]].push_back(Aj[k]);
+-            ref_Ax[Ai[k]].push_back(w);
++            ref_Ax[Ai[k]].push_back(weight(k));
+         }
+ 
+         timer_ref.lap_begin();
+@@ -125,6 +181,10 @@ int main(int argc, const char* const* argv) {
+         if (args[OPT_RUN_GPU].as<bool>()) verify_exact("acc", v_acc, ref_v);
+     }
+ 
++    if (args.count("gpu-output") && args[OPT_RUN_GPU].as<bool>()) {
++        write_float_vector(args["gpu-output"].as<std::string>(), v_acc);
++    }
++
+     spla::Library::get()->finalize();
+ 
+     timer.stop();
+diff --git a/src/opencl/cl_accelerator.cpp b/src/opencl/cl_accelerator.cpp
+index 6a7a0517..4ef10e3f 100644
+--- a/src/opencl/cl_accelerator.cpp
++++ b/src/opencl/cl_accelerator.cpp
+@@ -157,6 +157,12 @@ namespace spla {
+             m_is_img      = true;
+         }
+ 
++        if (m_device.getInfo<CL_DEVICE_NAME>() == "Ventus GPGPU device") {
++            m_vendor_code = "Ventus";
++            m_wave_size   = 32;
++            m_default_wgs = 64;
++        }
++
+         if (m_vendor_code.empty()) {
+             LOG_MSG(Status::Error, "failed to match one of the pre-defined vendors");
+             m_default_wgs = 64;

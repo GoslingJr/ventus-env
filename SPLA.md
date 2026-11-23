@@ -60,6 +60,64 @@ In a Debug build SPLA prints `select OpenCL device Ventus GPGPU device` and
 `build program` for every kernel, so it is easy to check that the tests really
 run on Ventus and not on the CPU fallback.
 
+## Graph algorithms on real matrices
+
+The `spla-graphs` directory reproduces BFS, PageRank, weighted SSSP and triangle
+counting on the Spike backend. The patch matches SPLA commit
+`b81d1e291d38dad627f4ad863dcfb7c3315951fd`. It selects a 32-lane wave for
+the Ventus OpenCL device. The example options are opt-in.
+
+Starting in the root of this built ventus-env checkout:
+
+```bash
+ventus=$(pwd)
+work=$(mktemp -d)
+git clone https://github.com/SparseLinearAlgebra/spla.git "$work/spla"
+git -C "$work/spla" checkout --detach b81d1e291d38dad627f4ad863dcfb7c3315951fd
+git -C "$work/spla" apply "$ventus/spla-graphs/spla-graphs.patch"
+cmake -S "$work/spla" -B "$work/build" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSPLA_BUILD_TESTS=OFF
+cmake --build "$work/build" --parallel 6 --target bfs pr sssp tc
+```
+
+Use Matrix Market files from the SuiteSparse Matrix Collection with the layout
+`data/NAME/NAME.mtx`. To download just these three matrices into the new directory:
+
+```bash
+(
+    set -e
+    for entry in Newman/netscience Newman/karate SNAP/p2p-Gnutella08; do
+        name=${entry##*/}
+        mkdir -p "$work/data/$name"
+        curl -fLsS "https://www.cise.ufl.edu/research/sparse/MM/$entry.tar.gz" -o "$work/$name.tar.gz"
+        tar -xOzf "$work/$name.tar.gz" "$name/$name.mtx" > "$work/data/$name/$name.mtx"
+    done
+    cd "$work/data"
+    sha256sum -c "$ventus/spla-graphs/matrices.sha256"
+)
+```
+
+Run all six cases, or append a single case name from the table. The runner
+selects Ventus via OpenCL and uses one fresh output directory and cache per
+case. Allow several minutes per case and a few GB for Spike traces.
+
+```bash
+bash "$ventus/spla-graphs/run.sh" "$work/build" "$work/data" "$work/results"
+```
+
+| Case | Matrix | Reference result |
+| --- | --- | --- |
+| `bfs` | Newman/netscience | From vertex 33, 379 of 1589 vertices reachable, maximum distance 10. |
+| `pr` | Newman/netscience | Stock SPLA example, checked against CPU and its naive reference. |
+| `sssp` | Newman/netscience | Original nonnegative edge weights from the real symmetric matrix. All 1589 distances checked against Dijkstra from vertex 33. |
+| `tc` | Newman/netscience | 3764 triangles. |
+| `bfs-directed` | SNAP/p2p-Gnutella08 | Push-only BFS on the original arcs from vertex 0. 6031 of 6301 vertices reachable, maximum distance 15. |
+| `pr-incoming` | Newman/karate | Standard incoming-neighbor PageRank on this undirected graph without isolated vertices. All 34 ranks checked with a double-precision reference at damping 0.85. |
+
+Vertex IDs are zero-based. A passing case requires successful program exit,
+a device log showing Ventus with wave size 32, and passing CPU and accelerator
+reference checks in the Debug build. The verifier also requires absolute error
+below 1e-5 for all finite SSSP distances and all incoming PageRank values.
+
 ## Not covered
 
 * cyclesim and the RTL still decode AMOs as scalar instructions, so atomics
